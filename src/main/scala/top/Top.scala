@@ -505,7 +505,7 @@ object TopMain extends App {
     Generator.execute(firrtlOpts, DisableMonitors(p => new XSTileDiffTop()(p))(config), firtoolOpts)
   } else {
     val soc = if (config(SoCParamsKey).UseXSNoCTop)
-      DisableMonitors(p => LazyModule(new XSNoCTop()(p)))(config)
+      DisableMonitors(p => LazyModule(new my.MyXSNoCTop()(p)))(config)
     else
       DisableMonitors(p => LazyModule(new XSTop()(p)))(config)
 
