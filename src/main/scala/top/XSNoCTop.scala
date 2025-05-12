@@ -159,6 +159,26 @@ trait HasXSTile extends HasLazyModuleBuilder { this: BaseXSSoc with HasSoCParame
   val debugIntNode = IntSourceNode(IntSourcePortSimple(1, 1, 1))
   core_with_l2.debugIntNode := debugIntNode
   val debug = InModuleBody(debugIntNode.makeIOs())
+
+  InModuleBody {
+    val io = IO(new Bundle {
+      val hartId = Input(UInt(p(MaxHartIdBits).W))
+      val riscv_halt = Output(Bool())
+      val riscv_critical_error = Output(Bool())
+      val hartResetReq = Input(Bool())
+      val hartIsInReset = Output(Bool())
+      val riscv_rst_vec = Input(UInt(soc.PAddrBits.W))
+      val nodeID = Input(UInt(soc.NodeIDWidthList(issue).W))
+    }).suggestName("tileio")
+
+    io.riscv_halt := core_with_l2.module.io.cpu_halt
+    io.riscv_critical_error := core_with_l2.module.io.cpu_crtical_error
+    core_with_l2.module.io.hartResetReq := io.hartResetReq
+    io.hartIsInReset := core_with_l2.module.io.hartIsInReset
+    core_with_l2.module.io.reset_vector := io.riscv_rst_vec
+    core_with_l2.module.io.hartId := io.hartId
+    core_with_l2.module.io.nodeID.get := io.nodeID
+  }
 }
 
 trait HasSeperatedTLBus { this: BaseXSSoc with HasSoCParameter
@@ -297,14 +317,7 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
     private val hasSramCtl = tiles.head.hasSramCtl
     private val hasDFT = hasMbist || hasSramCtl
     val io = IO(new Bundle {
-      val hartId = Input(UInt(p(MaxHartIdBits).W))
-      val riscv_halt = Output(Bool())
-      val riscv_critical_error = Output(Bool())
-      val hartResetReq = Input(Bool())
-      val hartIsInReset = Output(Bool())
-      val riscv_rst_vec = Input(UInt(soc.PAddrBits.W))
       val chi = new PortIO
-      val nodeID = Input(UInt(soc.NodeIDWidthList(issue).W))
       val clintTime = Input(ValidIO(UInt(64.W)))
       val dft = Option.when(hasDFT)(Input(new SramBroadcastBundle))
       val dft_reset = Option.when(hasMbist)(Input(new DFTResetSignals()))
@@ -350,13 +363,6 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
     core_with_l2.module.reset := cpuReset.asAsyncReset
     core_with_l2.module.noc_reset.foreach(_ := noc_reset.get)
     core_with_l2.module.soc_reset := soc_reset
-    core_with_l2.module.io.hartId := io.hartId
-    core_with_l2.module.io.nodeID.get := io.nodeID
-    io.riscv_halt := core_with_l2.module.io.cpu_halt
-    io.riscv_critical_error := core_with_l2.module.io.cpu_crtical_error
-    core_with_l2.module.io.hartResetReq := io.hartResetReq
-    io.hartIsInReset := core_with_l2.module.io.hartIsInReset
-    core_with_l2.module.io.reset_vector := io.riscv_rst_vec
     core_with_l2.module.io.iso_en.foreach { _ := io.lp.map(_.i_cpu_iso_en).getOrElse(false.B) }
     core_with_l2.module.io.pwrdown_req_n.foreach { _ := io.lp.map(_.i_cpu_pwrdown_req_n).getOrElse(true.B) }
 
