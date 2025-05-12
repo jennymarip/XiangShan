@@ -50,6 +50,7 @@ import difftest.common.DifftestWiring
 import difftest.util.Profile
 
 abstract class BaseXSSoc()(implicit p: Parameters) extends LazyModule
+  with HasSoCParameter
   with BindingScope
 {
   lazy val tlManagers : List[TLNexusNode] = List()
@@ -84,7 +85,7 @@ trait HasDTSImp[+L <: BaseXSSoc] { this: LazyRawModuleImp =>
   FileRegisters.add("plusArgs", freechips.rocketchip.util.PlusArgArtefacts.serialize_cHeader())
 }
 
-class XSTop()(implicit p: Parameters) extends BaseXSSoc() with HasSoCParameter
+class XSTop()(implicit p: Parameters) extends BaseXSSoc()
 {
   val nocMisc = if (enableCHI) Some(LazyModule(new MemMisc())) else None
   val socMisc = if (!enableCHI) Some(LazyModule(new SoCMisc())) else None

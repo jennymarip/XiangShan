@@ -284,9 +284,19 @@ trait HasTraceIO { this: BaseXSSoc with HasSoCParameter
   })
 }
 
-class BaseXSSocImp(wrapper: BaseXSSoc) extends LazyRawModuleImp(wrapper)
+abstract class BaseXSSocImp(wrapper: BaseXSSoc) extends LazyRawModuleImp(wrapper)
 {
-    def dtsLM = wrapper
+    val clock = IO(Input(Clock()))
+    val reset = IO(Input(AsyncReset()))
+
+    def socParams = wrapper.asInstanceOf[HasSoCParameter]
+}
+
+trait HasAsyncClockImp { this: BaseXSSocImp =>
+    val noc_clock = EnableCHIAsyncBridge.map(_ => IO(Input(Clock())))
+    val noc_reset = EnableCHIAsyncBridge.map(_ => IO(Input(AsyncReset())))
+    val soc_clock = IO(Input(Clock()))
+    val soc_reset = IO(Input(AsyncReset()))
 }
 
 class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
@@ -301,8 +311,10 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
   require(enableCHI)
 
   class XSNoCTopImp(wrapper: XSNoCTop) extends BaseXSSocImp(wrapper)
+                                       with HasAsyncClockImp
                                        with HasCoreLowPowerImp[XSNoCTop]
                                        with HasDTSImp[BaseXSSoc] {
+    def dtsLM = wrapper
 
     soc.XSTopPrefix.foreach { prefix =>
       val mod = this.toNamed
@@ -311,12 +323,6 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
       })
     }
 
-    val clock = IO(Input(Clock()))
-    val reset = IO(Input(AsyncReset()))
-    val noc_clock = EnableCHIAsyncBridge.map(_ => IO(Input(Clock())))
-    val noc_reset = EnableCHIAsyncBridge.map(_ => IO(Input(AsyncReset())))
-    val soc_clock = IO(Input(Clock()))
-    val soc_reset = IO(Input(AsyncReset()))
     private val hasMbist = tiles.head.hasMbist
     private val hasSramCtl = tiles.head.hasSramCtl
     private val hasDFT = hasMbist || hasSramCtl
