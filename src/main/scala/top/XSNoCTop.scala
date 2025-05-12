@@ -205,11 +205,47 @@ trait HasIMSIC { this: BaseXSSoc =>
   val u_imsic_bus_top = LazyModule(new imsic_bus_top)
 }
 
+trait HasTraceIO { this: BaseXSSoc with HasSoCParameter
+                                   with HasXSTile =>
+  val io_traceCoreInterface = InModuleBody({
+    val ios = IO(new Bundle {
+      val fromEncoder = Input(new Bundle {
+        val enable = Bool()
+        val stall  = Bool()
+      })
+      val toEncoder   = Output(new Bundle {
+        val cause     = UInt(TraceCauseWidth.W)
+        val tval      = UInt(TraceTvalWidth.W)
+        val priv      = UInt(TracePrivWidth.W)
+        val iaddr     = UInt((TraceTraceGroupNum * TraceIaddrWidth).W)
+        val itype     = UInt((TraceTraceGroupNum * TraceItypeWidth).W)
+        val iretire   = UInt((TraceTraceGroupNum * TraceIretireWidthCompressed).W)
+        val ilastsize = UInt((TraceTraceGroupNum * TraceIlastsizeWidth).W)
+      })
+    }).suggestName("io_traceCoreInterface")
+
+    val coreInterface = core_with_l2.module.io.traceCoreInterface
+
+    // trace Interface
+    coreInterface.fromEncoder := ios.fromEncoder
+    ios.toEncoder.priv := coreInterface.toEncoder.priv
+    ios.toEncoder.cause := coreInterface.toEncoder.trap.cause
+    ios.toEncoder.tval := coreInterface.toEncoder.trap.tval
+    ios.toEncoder.iaddr := VecInit(coreInterface.toEncoder.groups.map(_.bits.iaddr)).asUInt
+    ios.toEncoder.itype := VecInit(coreInterface.toEncoder.groups.map(_.bits.itype)).asUInt
+    ios.toEncoder.iretire := VecInit(coreInterface.toEncoder.groups.map(_.bits.iretire)).asUInt
+    ios.toEncoder.ilastsize := VecInit(coreInterface.toEncoder.groups.map(_.bits.ilastsize)).asUInt
+
+    ios
+  })
+}
+
 class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
                                          with HasSoCParameter
                                          with HasXSTile
                                          with HasSeperatedTLBus
                                          with HasIMSIC
+                                         with HasTraceIO
 {
   override lazy val desiredName: String = "XSTop"
 
@@ -246,21 +282,6 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
       val chi = new PortIO
       val nodeID = Input(UInt(soc.NodeIDWidthList(issue).W))
       val clintTime = Input(ValidIO(UInt(64.W)))
-      val traceCoreInterface = new Bundle {
-        val fromEncoder = Input(new Bundle {
-          val enable = Bool()
-          val stall  = Bool()
-        })
-        val toEncoder   = Output(new Bundle {
-          val cause     = UInt(TraceCauseWidth.W)
-          val tval      = UInt(TraceTvalWidth.W)
-          val priv      = UInt(TracePrivWidth.W)
-          val iaddr     = UInt((TraceTraceGroupNum * TraceIaddrWidth).W)
-          val itype     = UInt((TraceTraceGroupNum * TraceItypeWidth).W)
-          val iretire   = UInt((TraceTraceGroupNum * TraceIretireWidthCompressed).W)
-          val ilastsize = UInt((TraceTraceGroupNum * TraceIlastsizeWidth).W)
-        })
-      }
       val dft = Option.when(hasDFT)(Input(new SramBroadcastBundle))
       val dft_reset = Option.when(hasMbist)(Input(new DFTResetSignals()))
       val lp = Option.when(EnablePowerDown) (new LowPowerIO)
@@ -329,16 +350,6 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
     core_with_l2.module.io.reset_vector := io.riscv_rst_vec
     core_with_l2.module.io.iso_en.foreach { _ := io.lp.map(_.i_cpu_iso_en).getOrElse(false.B) }
     core_with_l2.module.io.pwrdown_req_n.foreach { _ := io.lp.map(_.i_cpu_pwrdown_req_n).getOrElse(true.B) }
-    // trace Interface
-    val traceInterface = core_with_l2.module.io.traceCoreInterface
-    traceInterface.fromEncoder := io.traceCoreInterface.fromEncoder
-    io.traceCoreInterface.toEncoder.priv := traceInterface.toEncoder.priv
-    io.traceCoreInterface.toEncoder.cause := traceInterface.toEncoder.trap.cause
-    io.traceCoreInterface.toEncoder.tval := traceInterface.toEncoder.trap.tval
-    io.traceCoreInterface.toEncoder.iaddr := VecInit(traceInterface.toEncoder.groups.map(_.bits.iaddr)).asUInt
-    io.traceCoreInterface.toEncoder.itype := VecInit(traceInterface.toEncoder.groups.map(_.bits.itype)).asUInt
-    io.traceCoreInterface.toEncoder.iretire := VecInit(traceInterface.toEncoder.groups.map(_.bits.iretire)).asUInt
-    io.traceCoreInterface.toEncoder.ilastsize := VecInit(traceInterface.toEncoder.groups.map(_.bits.ilastsize)).asUInt
 
     EnableClintAsyncBridge match {
       case Some(param) =>
