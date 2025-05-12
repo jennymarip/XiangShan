@@ -360,50 +360,28 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc with HasSoCParameter
   lazy val module = new XSNoCTopImp(this)
 }
 
-class XSNoCDiffTop(implicit p: Parameters) extends Module {
-  override val desiredName: String = "XSDiffTop"
-  val l_soc = LazyModule(new XSNoCTop())
-  val soc = Module(l_soc.module)
+class XSNoCDiffTop(implicit p: Parameters) extends XSNoCTop
+{
+  override lazy val desiredName: String = "XSDiffTop"
 
-  // Expose XSTop IOs outside, i.e. io
-  def exposeIO(data: Data, name: String): Unit = {
-    val dummy = IO(chiselTypeOf(data)).suggestName(name)
-    dummy <> data
-  }
-  def exposeOptionIO(data: Option[Data], name: String): Unit = {
-    if (data.isDefined) {
-      val dummy = IO(chiselTypeOf(data.get)).suggestName(name)
-      dummy <> data.get
+  class XSNoCDiffTopImp(wrapper: XSNoCTop) extends XSNoCTopImp(wrapper) {
+    // TODO:
+    // XSDiffTop is only part of DUT, we can not instantiate difftest here.
+    // Temporarily we collect Performance counters for each DiffTop, need control signals passed from Difftest
+    val timer = IO(Input(UInt(64.W)))
+    val logEnable = IO(Input(Bool()))
+    val clean = IO(Input(Bool()))
+    val dump = IO(Input(Bool()))
+
+    withClockAndReset(clock, cpuReset_sync) {
+      XSLog.collect(timer, logEnable, clean, dump)
     }
+      DifftestWiring.createAndConnectExtraIOs()
+    Profile.generateJson("XiangShan")
+    XSNoCDiffTopChecker()
   }
-  exposeIO(l_soc.clint, "clint")
-  exposeIO(l_soc.debug, "debug")
-  exposeIO(l_soc.plic, "plic")
-  exposeIO(l_soc.beu, "beu")
-  exposeIO(l_soc.nmi, "nmi")
-  soc.clock := clock
-  soc.reset := reset.asAsyncReset
-  exposeIO(soc.soc_clock, "soc_clock")
-  exposeIO(soc.soc_reset, "soc_reset")
-  exposeIO(soc.io, "io")
-  exposeOptionIO(soc.noc_clock, "noc_clock")
-  exposeOptionIO(soc.noc_reset, "noc_reset")
-  exposeOptionIO(soc.imsic_axi4, "imsic_axi4")
-  exposeOptionIO(soc.imsic_m_tl, "imsic_m_tl")
-  exposeOptionIO(soc.imsic_s_tl, "imsic_s_tl")
-  exposeOptionIO(soc.imsic, "imsic")
 
-  // TODO:
-  // XSDiffTop is only part of DUT, we can not instantiate difftest here.
-  // Temporarily we collect Performance counters for each DiffTop, need control signals passed from Difftest
-  val timer = IO(Input(UInt(64.W)))
-  val logEnable = IO(Input(Bool()))
-  val clean = IO(Input(Bool()))
-  val dump = IO(Input(Bool()))
-  XSLog.collect(timer, logEnable, clean, dump)
-  DifftestWiring.createAndConnectExtraIOs()
-  Profile.generateJson("XiangShan")
-  XSNoCDiffTopChecker()
+  override lazy val module = new XSNoCDiffTopImp(this)
 }
 
 // TODO:
