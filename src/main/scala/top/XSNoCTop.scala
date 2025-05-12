@@ -284,6 +284,11 @@ trait HasTraceIO { this: BaseXSSoc with HasSoCParameter
   })
 }
 
+class BaseXSSocImp(wrapper: BaseXSSoc) extends LazyRawModuleImp(wrapper)
+{
+    def dtsLM = wrapper
+}
+
 class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
                                          with HasSoCParameter
                                          with HasXSTile
@@ -295,10 +300,9 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
 
   require(enableCHI)
 
-  class XSNoCTopImp(wrapper: XSNoCTop) extends LazyRawModuleImp(wrapper)
+  class XSNoCTopImp(wrapper: XSNoCTop) extends BaseXSSocImp(wrapper)
                                        with HasCoreLowPowerImp[XSNoCTop]
                                        with HasDTSImp[BaseXSSoc] {
-    def dtsLM = wrapper
 
     soc.XSTopPrefix.foreach { prefix =>
       val mod = this.toNamed
