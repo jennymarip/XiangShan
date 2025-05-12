@@ -200,9 +200,33 @@ trait HasSeperatedTLBus { this: BaseXSSoc with HasSoCParameter
   val io_tl = tl.map(x => InModuleBody(x.makeIOs()))
 }
 
-trait HasIMSIC { this: BaseXSSoc =>
+trait HasIMSIC { this: BaseXSSoc with HasSoCParameter
+                                 with HasXSTile =>
   // imsic bus top
   val u_imsic_bus_top = LazyModule(new imsic_bus_top)
+
+  val io_imsic = InModuleBody({
+    // imsic axi4 io
+    val imsic_axi4 = u_imsic_bus_top.axi4.map(x => IO(Flipped(new VerilogAXI4Record(x.elts.head.params.copy(addrBits = 32)))))
+    // imsic tl io
+    val imsic_m_tl = u_imsic_bus_top.tl_m.map(x => IO(chiselTypeOf(x.getWrappedValue)))
+    val imsic_s_tl = u_imsic_bus_top.tl_s.map(x => IO(chiselTypeOf(x.getWrappedValue)))
+    // imsic bare io
+    val imsic = u_imsic_bus_top.module.msi.map(x => IO(chiselTypeOf(x)))
+
+    // imsic axi4 io connection
+    imsic_axi4.foreach(_.viewAs[AXI4Bundle] <> u_imsic_bus_top.axi4.get.elements.head._2)
+    // imsic tl io connection
+    u_imsic_bus_top.tl_m.foreach(_ <> imsic_m_tl.get)
+    u_imsic_bus_top.tl_s.foreach(_ <> imsic_s_tl.get)
+    // imsic bare io connection
+    u_imsic_bus_top.module.msi.foreach(_ <> imsic.get)
+
+    // core <> imsic io
+    core_with_l2.module.io.msiInfo.valid := u_imsic_bus_top.module.msiio.vld_req
+    core_with_l2.module.io.msiInfo.bits := u_imsic_bus_top.module.msiio.data
+    u_imsic_bus_top.module.msiio.vld_ack := core_with_l2.module.io.msiAck
+  })
 }
 
 trait HasTraceIO { this: BaseXSSoc with HasSoCParameter
@@ -286,13 +310,6 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
       val dft_reset = Option.when(hasMbist)(Input(new DFTResetSignals()))
       val lp = Option.when(EnablePowerDown) (new LowPowerIO)
     })
-    // imsic axi4 io
-    val imsic_axi4 = wrapper.u_imsic_bus_top.axi4.map(x => IO(Flipped(new VerilogAXI4Record(x.elts.head.params.copy(addrBits = 32)))))
-    // imsic tl io
-    val imsic_m_tl = wrapper.u_imsic_bus_top.tl_m.map(x => IO(chiselTypeOf(x.getWrappedValue)))
-    val imsic_s_tl = wrapper.u_imsic_bus_top.tl_s.map(x => IO(chiselTypeOf(x.getWrappedValue)))
-    // imsic bare io
-    val imsic = wrapper.u_imsic_bus_top.module.msi.map(x => IO(chiselTypeOf(x)))
 
     val noc_reset_sync = EnableCHIAsyncBridge.map(_ => withClockAndReset(noc_clock, noc_reset) { ResetGen(2, io.dft_reset) })
     val soc_reset_sync = withClockAndReset(soc_clock, soc_reset) { ResetGen(2, io.dft_reset) }
@@ -301,14 +318,6 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
     // device clock and reset
     wrapper.u_imsic_bus_top.module.clock := soc_clock
     wrapper.u_imsic_bus_top.module.reset := soc_reset_sync
-
-    // imsic axi4 io connection
-    imsic_axi4.foreach(_.viewAs[AXI4Bundle] <> wrapper.u_imsic_bus_top.axi4.get.elements.head._2)
-    // imsic tl io connection
-    wrapper.u_imsic_bus_top.tl_m.foreach(_ <> imsic_m_tl.get)
-    wrapper.u_imsic_bus_top.tl_s.foreach(_ <> imsic_s_tl.get)
-    // imsic bare io connection
-    wrapper.u_imsic_bus_top.module.msi.foreach(_ <> imsic.get)
 
     // input
     dontTouch(io)
@@ -380,9 +389,6 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
       tlAsyncSinkOpt.get.module.reset := soc_reset_sync
     }
 
-    core_with_l2.module.io.msiInfo.valid := wrapper.u_imsic_bus_top.module.msiio.vld_req
-    core_with_l2.module.io.msiInfo.bits := wrapper.u_imsic_bus_top.module.msiio.data
-    wrapper.u_imsic_bus_top.module.msiio.vld_ack := core_with_l2.module.io.msiAck
     // tie off core soft reset
     core_rst_node.out.head._1 := false.B.asAsyncReset
 
