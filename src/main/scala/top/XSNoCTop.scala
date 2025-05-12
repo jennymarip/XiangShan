@@ -117,14 +117,8 @@ trait HasCoreLowPowerImp[T <: XSNoCTop] { this: XSNoCTop#XSNoCTopImp =>
   }
 }
 
-class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
-                                         with HasSoCParameter
-                                         with HasLazyModuleBuilder
-{
-  override lazy val desiredName: String = "XSTop"
-
-  require(enableCHI)
-
+trait HasXSTile extends HasLazyModuleBuilder { this: BaseXSSoc with HasSoCParameter =>
+  implicit val p: Parameters
   protected def buildCoreWithL2(params: Parameters): XSTileWrap = {
       buildLazyModuleWithName("core_with_l2")(
         (ps: Parameters) => new XSTileWrap()(ps)
@@ -137,31 +131,44 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
     case PerfCounterOptionsKey => up(PerfCounterOptionsKey).copy(perfDBHartID = tiles.head.HartId)
   }))
 
-  // imsic bus top
-  val u_imsic_bus_top = LazyModule(new imsic_bus_top)
+  // reset nodes
+  val core_rst_node = BundleBridgeSource(() => Reset())
+  core_with_l2.tile.core_reset_sink := core_rst_node
 
-  // interrupts
-  val clintIntNode = IntSourceNode(IntSourcePortSimple(1, 1, 2))
-  val debugIntNode = IntSourceNode(IntSourcePortSimple(1, 1, 1))
-  val plicIntNode = IntSourceNode(IntSourcePortSimple(1, 2, 1))
-  val nmiIntNode = IntSourceNode(IntSourcePortSimple(1, 1, (new NonmaskableInterruptIO).elements.size))
+  /* beu */
   val beuIntNode = IntSinkNode(IntSinkPortSimple(1, 1))
-  core_with_l2.clintIntNode := clintIntNode
-  core_with_l2.debugIntNode := debugIntNode
-  core_with_l2.plicIntNode :*= plicIntNode
-  core_with_l2.nmiIntNode := nmiIntNode
   beuIntNode := core_with_l2.beuIntNode
-  val clint = InModuleBody(clintIntNode.makeIOs())
-  val debug = InModuleBody(debugIntNode.makeIOs())
-  val plic = InModuleBody(plicIntNode.makeIOs())
-  val nmi = InModuleBody(nmiIntNode.makeIOs())
   val beu = InModuleBody(beuIntNode.makeIOs())
 
+  /* clint */
+  val clintIntNode = IntSourceNode(IntSourcePortSimple(1, 1, 2))
+  core_with_l2.clintIntNode := clintIntNode
+  val clint = InModuleBody(clintIntNode.makeIOs())
+
+  /* plic */
+  val plicIntNode = IntSourceNode(IntSourcePortSimple(1, 2, 1))
+  core_with_l2.plicIntNode :*= plicIntNode
+  val plic = InModuleBody(plicIntNode.makeIOs())
+
+  /* nmi */
+  val nmiIntNode = IntSourceNode(IntSourcePortSimple(1, 1, (new NonmaskableInterruptIO).elements.size))
+  core_with_l2.nmiIntNode := nmiIntNode
+  val nmi = InModuleBody(nmiIntNode.makeIOs())
+
+  /* debug */
+  val debugIntNode = IntSourceNode(IntSourcePortSimple(1, 1, 1))
+  core_with_l2.debugIntNode := debugIntNode
+  val debug = InModuleBody(debugIntNode.makeIOs())
+}
+
+trait HasSeperatedTLBus { this: BaseXSSoc with HasSoCParameter
+                                          with HasXSTile =>
   // asynchronous bridge sink node
   val tlAsyncSinkOpt = Option.when(SeperateTLBus && EnableSeperateTLAsync)(
     LazyModule(new TLAsyncCrossingSink(SeperateTLAsyncBridge.get))
   )
   tlAsyncSinkOpt.foreach(_.node := core_with_l2.tlAsyncSourceOpt.get.node)
+
   // synchronous sink node
   val tlSyncSinkOpt = Option.when(SeperateTLBus && !EnableSeperateTLAsync)(TLTempNode())
   tlSyncSinkOpt.foreach(_ := core_with_l2.tlSyncSourceOpt.get)
@@ -184,16 +191,29 @@ class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
       beatBytes = 8
     )
   )))
+
   val tlXbar = Option.when(SeperateTLBus)(TLXbar())
   tlAsyncSinkOpt.foreach(sink => tlXbar.get := sink.node)
   tlSyncSinkOpt.foreach(sink => tlXbar.get := sink)
   tl.foreach(_ := tlXbar.get)
   // seperate TL io
   val io_tl = tl.map(x => InModuleBody(x.makeIOs()))
+}
 
-  // reset nodes
-  val core_rst_node = BundleBridgeSource(() => Reset())
-  core_with_l2.tile.core_reset_sink := core_rst_node
+trait HasIMSIC { this: BaseXSSoc =>
+  // imsic bus top
+  val u_imsic_bus_top = LazyModule(new imsic_bus_top)
+}
+
+class XSNoCTop()(implicit p: Parameters) extends BaseXSSoc
+                                         with HasSoCParameter
+                                         with HasXSTile
+                                         with HasSeperatedTLBus
+                                         with HasIMSIC
+{
+  override lazy val desiredName: String = "XSTop"
+
+  require(enableCHI)
 
   class XSNoCTopImp(wrapper: XSNoCTop) extends LazyRawModuleImp(wrapper)
                                        with HasCoreLowPowerImp[XSNoCTop]
